@@ -71,6 +71,29 @@ bool call_mqtt = false;
 
 const char* topic = "Mbed";
 
+void gesture_feature() {
+  int px = 0, py = 0, pz = 0, plen = 0;
+  int dx = 0, dy = 0, dz = 0;
+
+  for (int i = 0; i < 32; i++) {
+      px = store_Data[i][0];
+      py = store_Data[i][1];
+      pz = store_Data[i][2];
+      plen = sqrt(px * px + py * py + pz * pz);
+      dx = abs(store_Data[i][0]);
+      dy = abs(store_Data[i][1]);
+      dz = abs(store_Data[i][2]);
+      if (plen < 1000)
+        printf("2\n");
+      else if (dz > 450)
+        printf("1\n");
+      else
+        printf("0\n");
+  }
+  
+}
+
+
 ////////////////////////feature_confirm/////////////////////////////////
 
 void feature_confirm() {
@@ -139,6 +162,8 @@ void stopRecord(void) {
   call_mqtt = true;
   feature_confirm();
   printf("press enter to continue\n");
+  ThisThread::sleep_for(2s);
+  gesture_feature();///////////////////////
 }
 //////////////////////acceleration record////////////////////////////
 
