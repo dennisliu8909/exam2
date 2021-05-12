@@ -35,6 +35,7 @@ int store_Data[32][3] = {0};
 int idR[32] = {0};
 int indexR = 0;
 int indexG = 0;
+char gesture_ID[30] = {0};
 
 /////
 uLCD_4DGL uLCD(D1, D0, D2);
@@ -70,11 +71,53 @@ bool call_mqtt = false;
 
 const char* topic = "Mbed";
 
+////////////////////////feature_confirm/////////////////////////////////
+
+void feature_confirm() {
+  int X_max = -2000, X_min = 2000;
+  int Y_max = -2000, Y_min = 2000;
+  int Z_max = -2000, Z_min = 2000;
+
+  //// take out max and min value of acceleration in X direction////////////////////
+  for (int i = 0; i < 32; i++) {
+      if (X_max < store_Data[i][0])
+        X_max = store_Data[i][0];
+      if (X_min > store_Data[i][0])
+        X_min = store_Data[i][0];
+  }
+  //// take out max and min value of acceleration in Y direction////////////////////
+  for (int i = 0; i < 32; i++) {
+      if (Y_max < store_Data[i][1])
+        Y_max = store_Data[i][1];
+      if (Y_min > store_Data[i][1])
+        Y_min = store_Data[i][1];
+  }
+  //// take out max and min value of acceleration in Z direction////////////////////
+  for (int i = 0; i < 32; i++) {
+      if (Z_max < store_Data[i][2])
+        Z_max = store_Data[i][2];
+      if (Z_min > store_Data[i][2])
+        Z_min = store_Data[i][2];
+  }
+  /////////// confirm the gesture///////////////////////////////////////
+  if ((Z_max - Z_min) >= 2000)
+    printf("The gesture confirmed to be : Slope\n");
+  else if ((X_max - X_min) > 1500 || (Y_max - Y_min) > 1500)
+    printf("The gesture confirmed to be : Circle\n");
+  else if ((X_max - X_min) < 500 && (Y_max - Y_min) < 500 && (Z_max - Z_min) < 500)
+    printf("The gesture confirmed to be : Nike\n");
+  else
+    printf("The gesture confirmed to be : Unknown\n");
+}
+
+////////////////////////feature_confirm/////////////////////////////////
+
+
 //////////////////////acceleration record////////////////////////////
 void record(void) {
    BSP_ACCELERO_AccGetXYZ(gDataXYZ);
    printf("%d, %d, %d\n", gDataXYZ[0], gDataXYZ[1], gDataXYZ[2]);
-   for (int i = 0; i < 2; i++) {
+   for (int i = 0; i < 3; i++) {
      store_Data[indexG][i] = gDataXYZ[i];
    }
    indexG = indexG % 32;
@@ -94,6 +137,7 @@ void stopRecord(void) {
    for (auto &i : idR)
       mqtt_queue.cancel(i);
   call_mqtt = true;
+  feature_confirm();
   printf("press enter to continue\n");
 }
 //////////////////////acceleration record////////////////////////////
@@ -108,10 +152,12 @@ void messageArrived(MQTT::MessageData& md) {
     sprintf(payload, "Payload %.*s\r\n", message.payloadlen, (char*)message.payload);
     printf(payload);
     ++arrivedcount;
-    if (mode == 1 && arrivedcount == 32)
+    if (mode == 1 && arrivedcount == 32) {
       closed = true;
-    else if (mode == 2 && arrivedcount == 10)
+      printf("%s\n", gesture_ID);
+    } else if (mode == 2 && arrivedcount == 10) {
       closed = true;
+    }
     RPC_function_run = 0;
 }
 
@@ -156,7 +202,6 @@ void UI_mode(Arguments *in, Reply *out);
 void gesture_mode();
 void tilt_mode(Arguments *in, Reply *out);
 void angle_detect();
-void acceleration_collect();
 RPCFunction UI_gesture(&UI_mode, "UI_mode");
 RPCFunction Tilt_mode(&tilt_mode, "tilt_mode");
 
@@ -431,25 +476,24 @@ void gesture_mode() {
       printf("%d\n", gesture_index);
       if (gesture_index == 0) {
         // angle += 5;
+        sprintf(gesture_ID, "gesture%d : circle\n", 1);
         uLCD.locate(1,2);
         uLCD.printf("gesture : circle\n");
       }
       else if (gesture_index == 1) {
         // angle += 10;
+        sprintf(gesture_ID, "gesture%d : slope\n", 2);
         uLCD.locate(1,2);
         uLCD.printf("gesture : slope\n");
       }
       else if (gesture_index == 2) {
+        sprintf(gesture_ID, "gesture%d : nike\n", 3);
         uLCD.locate(1,2);
         uLCD.printf("gesture : nike\n");
       }
     }
   }
 }
-
-/*void acceleration_collect() {
-
-}*/
 
 void tilt_mode(Arguments *in, Reply *out) {
   mode = 2;
