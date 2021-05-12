@@ -30,11 +30,24 @@ using namespace std::chrono;
 
 // Store x, y, z data
 int16_t aDataXYZ[3] = {0};
+int16_t gDataXYZ[3] = {0};
+int store_Data[32][3] = {0};
+int idR[32] = {0};
+int indexR = 0;
+int indexG = 0;
+
 /////
 uLCD_4DGL uLCD(D1, D0, D2);
 /////
 
-Thread thread1, thread2;
+Thread thread1, thread2, t;
+Thread mqtt_thread(osPriorityHigh);
+
+EventQueue mqtt_queue;
+EventQueue UI_queue;
+EventQueue tilt_queue;
+EventQueue queue;
+
 DigitalOut led1(LED1);
 DigitalOut led2(LED2);
 DigitalOut led3(LED3);
@@ -57,22 +70,45 @@ bool call_mqtt = false;
 
 const char* topic = "Mbed";
 
-Thread mqtt_thread(osPriorityHigh);
-EventQueue mqtt_queue;
-EventQueue UI_queue;
-EventQueue tile_queue;
+//////////////////////acceleration record////////////////////////////
+void record(void) {
+   BSP_ACCELERO_AccGetXYZ(gDataXYZ);
+   printf("%d, %d, %d\n", gDataXYZ[0], gDataXYZ[1], gDataXYZ[2]);
+   for (int i = 0; i < 2; i++) {
+     store_Data[indexG][i] = gDataXYZ[i];
+   }
+   indexG = indexG % 32;
+   indexG++;
+   
+}
+
+void startRecord(void) {
+   printf("---start---\n");
+   indexG = 0;
+   idR[indexR++] = mqtt_queue.call_every(1ms, record);
+   indexR = indexR % 32;
+}
+
+void stopRecord(void) {
+   printf("---stop---\n");
+   for (auto &i : idR)
+      mqtt_queue.cancel(i);
+  call_mqtt = true;
+  printf("press enter to continue\n");
+}
+//////////////////////acceleration record////////////////////////////
 
 void messageArrived(MQTT::MessageData& md) {
     MQTT::Message &message = md.message;
     char msg[300];
     sprintf(msg, "Message arrived: QoS%d, retained %d, dup %d, packetID %d\r\n", message.qos, message.retained, message.dup, message.id);
     printf(msg);
-    ThisThread::sleep_for(1000ms);
+    ThisThread::sleep_for(500ms);
     char payload[300];
     sprintf(payload, "Payload %.*s\r\n", message.payloadlen, (char*)message.payload);
     printf(payload);
     ++arrivedcount;
-    if (mode == 1 && arrivedcount == 1)
+    if (mode == 1 && arrivedcount == 32)
       closed = true;
     else if (mode == 2 && arrivedcount == 10)
       closed = true;
@@ -83,7 +119,7 @@ void publish_message(MQTT::Client<MQTTNetwork, Countdown>* client) {
     MQTT::Message message;
     char buff[100];
     if (mode == 1)
-      sprintf(buff, "threshold_angle : %d", angle);
+      sprintf(buff, "store_Data : (%d, %d, %d)", store_Data[arrivedcount][0], store_Data[arrivedcount][1], store_Data[arrivedcount][2]);
     else if (mode == 2) {
       sprintf(buff, "over_angle : %g\n", over_angle[arrivedcount]);
     }
@@ -118,10 +154,11 @@ uint8_t tensor_arena[kTensorArenaSize];
 
 void UI_mode(Arguments *in, Reply *out);
 void gesture_mode();
-void tile_mode(Arguments *in, Reply *out);
+void tilt_mode(Arguments *in, Reply *out);
 void angle_detect();
+void acceleration_collect();
 RPCFunction UI_gesture(&UI_mode, "UI_mode");
-RPCFunction Tile_mode(&tile_mode, "tile_mode");
+RPCFunction Tilt_mode(&tilt_mode, "tilt_mode");
 
 BufferedSerial pc(USBTX, USBRX);
 
@@ -182,11 +219,12 @@ int main() {
   // Init accelerometer
   BSP_ACCELERO_Init();
   //// button interrupt
-  mqtt_thread.start(callback(&mqtt_queue, &EventQueue::dispatch_forever));    //// mqtt should be in thread otherwise it won't run
-  btn2.fall(mqtt_queue.event(mqtt));
+  mqtt_thread.start(callback(&mqtt_queue, &EventQueue::dispatch_forever));
+  btn2.fall(mqtt_queue.event(startRecord));
+  btn2.rise(mqtt_queue.event(stopRecord));
   ///////
-  uLCD.text_width(4);
-  uLCD.text_height(4);
+  uLCD.text_width(2);
+  uLCD.text_height(2);
   uLCD.locate(1,2);
   ///////
   char buf[256], outbuf[256];
@@ -392,29 +430,33 @@ void gesture_mode() {
       // error_reporter->Report(config.output_message[gesture_index]);
       printf("%d\n", gesture_index);
       if (gesture_index == 0) {
-        angle += 5;
+        // angle += 5;
         uLCD.locate(1,2);
-        uLCD.printf("%d\n", angle);
+        uLCD.printf("gesture : circle\n");
       }
       else if (gesture_index == 1) {
-        angle += 10;
+        // angle += 10;
         uLCD.locate(1,2);
-        uLCD.printf("%d\n", angle);
+        uLCD.printf("gesture : slope\n");
       }
       else if (gesture_index == 2) {
         uLCD.locate(1,2);
-        uLCD.printf("%d\n", angle);
+        uLCD.printf("gesture : nike\n");
       }
     }
   }
 }
 
-void tile_mode(Arguments *in, Reply *out) {
+/*void acceleration_collect() {
+
+}*/
+
+void tilt_mode(Arguments *in, Reply *out) {
   mode = 2;
   led1 = 0;
   led2 = 1;
-  thread2.start(callback(&tile_queue, &EventQueue::dispatch_forever));
-  tile_queue.call(angle_detect);
+  thread2.start(callback(&tilt_queue, &EventQueue::dispatch_forever));
+  tilt_queue.call(angle_detect);
 }
 
 void angle_detect() {
